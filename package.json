@@ -1,0 +1,24 @@
+{
+  "name": "actx",
+  "version": "0.1.0",
+  "description": "JS AudioContet helpful library",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourconst/actx.git"
+  },
+  "keywords": [
+    "js",
+    "audiocontext",
+    "actx"
+  ],
+  "author": "yourconst",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/yourconst/actx/issues"
+  },
+  "homepage": "https://github.com/yourconst/actx#readme"
+}
