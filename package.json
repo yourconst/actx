@@ -20,5 +20,11 @@
   "bugs": {
     "url": "https://github.com/yourconst/actx/issues"
   },
-  "homepage": "https://github.com/yourconst/actx#readme"
+  "homepage": "https://github.com/yourconst/actx#readme",
+  "dependencies": {
+    "eventemitter3": "^4.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^4.5.4"
+  }
 }
