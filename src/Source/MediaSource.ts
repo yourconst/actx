@@ -38,24 +38,47 @@ export class MediaSource extends SubSource<MediaSource, MediaSourceTypes> {
         return this;
     }
 
+    protected clearNode() {
+        if (this.element) {
+            this.element.src = null;
+            delete this.element;
+        }
+
+        if (this.node) {
+            this.node.disconnect(this.targetNode);
+            delete this.node;
+        }
+    }
+
+    protected createNode() {
+        this.node = this.ctx.createMediaElementSource(this.element);
+        this.node.connect(this.targetNode);
+    }
+
     setSource(source: MediaSourceTypes) {
         if (source instanceof HTMLMediaElement) {
+            this.clearNode();
             this.element = source;
+            this.createNode();
         } else {
             if (this.element) {
                 this.element.src = source;
             } else {
+                this.clearNode();
                 this.element = new Audio(source);
+                this.createNode();
             }
         }
 
-        this.element.volume = 1;
+        // this.element.volume = 1;
 
         this.element.onloadstart = () => this.emit(this.events.LOAD_START, this);
         this.element.load = () => this.emit(this.events.LOAD, this);
         this.element.onchange = () => this.emit(this.events.CHANGE, this);
         this.element.onended = () => this.emit(this.events.END, this);
         this.element.ondurationchange = () => this.emit(this.events.DURATION_CHANGE, this);
+        this.element.onplay = () => this.emit(this.events.PLAY, this);
+        this.element.onpause = () => this.emit(this.events.PAUSE, this);
 
         return this;
     }
@@ -63,14 +86,16 @@ export class MediaSource extends SubSource<MediaSource, MediaSourceTypes> {
     destructor() {
         this.node?.disconnect();
         delete this.node;
-        delete this.element;
         
         super.destructor();
+
+        this.element.src = null;
+        delete this.element;
     }
 
     static isSupportedSource<T>(rawSource: T): T extends MediaSourceTypes ? true : false {
         return <any>
             (rawSource instanceof HTMLMediaElement) ||
-            (typeof rawSource === 'string' && !rawSource.startsWith('data:'));
+            (typeof rawSource === 'string');
     };
 }

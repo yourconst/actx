@@ -6,14 +6,20 @@ enum SubSourceEvents {
     CHANGE = 'change',
     END = 'end',
     DURATION_CHANGE = 'durationchange',
+    PLAY = 'play',
+    PAUSE = 'pause',
+    DESCTRUCT = 'destruct',
 };
 
-export abstract class SubSource<ClassType, SourceTypes> extends EventEmitter<{
+export abstract class SubSource<ClassType extends SubSource<any, any>, SourceTypes> extends EventEmitter<{
     [SubSourceEvents.LOAD_START]: (src: ClassType) => void,
     [SubSourceEvents.LOAD]: (src: ClassType) => void,
     [SubSourceEvents.CHANGE]: (src: ClassType) => void,
     [SubSourceEvents.END]: (src: ClassType) => void,
     [SubSourceEvents.DURATION_CHANGE]: (src: ClassType) => void,
+    [SubSourceEvents.PLAY]: (src: ClassType) => void,
+    [SubSourceEvents.PAUSE]: (src: ClassType) => void,
+    [SubSourceEvents.DESCTRUCT]: (src: ClassType) => void,
 }> {
     readonly events = SubSourceEvents;
 
@@ -44,9 +50,20 @@ export abstract class SubSource<ClassType, SourceTypes> extends EventEmitter<{
     //     throw new Error('Abstract method `isSupportedSource` must be redefined');
     // };
 
+    get destructed() {
+        return !this.targetNode;
+    }
+
     destructor() {
+        console.log('Destruct: ', this.destructed, this);
+        if (this.destructed) {
+            return;
+        }
+
         delete this.targetNode;
         delete this.ctx;
+
+        this.emit(this.events.DESCTRUCT, <any> this);
 
         this.removeAllListeners();
     }

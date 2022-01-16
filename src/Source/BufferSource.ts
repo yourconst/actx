@@ -4,9 +4,13 @@ import { SubSource } from './SubSource';
 export type BufferSourceTypes = ArrayBuffer | ReadableStream<Uint8Array | ArrayBuffer> | string;
 
 export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
+    readonly minBufferLength = 2e5;
+
     loadId = 0;
     startOffset = 0;
     startTime = 0;
+
+    protected loaded = false;
 
     protected _paused = true;
     _node: AudioBufferSourceNode;
@@ -26,7 +30,7 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
         this.startOffset = value;
 
         if (!this.paused) {
-            this.play();
+            this._startFrom();
         }
     }
 
@@ -53,13 +57,41 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
         value.connect(this.targetNode);
 
         value.onended = () =>  {
-            if(!value.loop)
+            if (!this.loaded) {
+                this.pause();
+                return;
+            }
+
+            if(!this.node.loop) {
                 this._paused = true;
+            }
+
             this.startOffset = 0;
+            this.emit(this.events.PAUSE, this);
             this.emit(this.events.END, this);
         };
 
         this._node = value;
+    }
+
+    protected _startFrom(offset = this.startOffset) {
+        this.startOffset = offset;
+
+        if (this.audioBuffer) {
+            this.clearNode();
+
+            this.startTime = this.ctx.currentTime;
+
+            this.node = this.ctx.createBufferSource();
+            this.node.buffer = this.audioBuffer;
+
+            //this.node.loop = true;
+
+            this.node.start(0, this.startOffset % this.duration);
+            this.emit(this.events.PLAY, this);
+        }
+
+        this._paused = false;
     }
 
     play() {
@@ -67,18 +99,7 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
             return this;
         }
 
-        this.clearNode();
-
-        this.startTime = this.ctx.currentTime;
-
-        this.node = this.ctx.createBufferSource();
-        this.node.buffer = this.audioBuffer;
-
-        //this.node.loop = true;
-
-        this.node.start(0, this.startOffset % this.duration);
-
-        this._paused = false;
+        this._startFrom();
 
         return this;
     }
@@ -87,16 +108,22 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
             this.clearNode();
             this.startOffset += this.ctx.currentTime - this.startTime;
             this._paused = true;
+
+            this.emit(this.events.PAUSE, this);
         }
 
         return this;
     }
 
-    protected async changeBuffer(buffer: ArrayBuffer, loadId: number) {
+    protected async changeBuffer(buffer: ArrayBuffer, loadId: number, needRestart = false) {
         const audioBuffer = await this.ctx.decodeAudioData(buffer);
 
         if (this.loadId > loadId) {
             return false;
+        }
+
+        if (needRestart) {
+            this.currentTime = 0;
         }
 
         const isPlaying = !this.paused;
@@ -105,20 +132,24 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
         this.pause();
 
         if (isPlaying) {
-            this.play();
+            this._startFrom();
         }
 
         this.emit(this.events.DURATION_CHANGE, this);
-        this.emit(this.events.CHANGE, this);
+        // this.emit(this.events.CHANGE, this);
 
         return true;
     }
 
     protected async setSourceBuffer(sourceBuffer: ArrayBuffer) {
-        const partLength = Math.min(100000, sourceBuffer.byteLength);
+        this.loaded = false;
+        this.emit(this.events.LOAD_START, this);
+        this.emit(this.events.CHANGE, this);
+
+        const partLength = Math.min(this.minBufferLength, sourceBuffer.byteLength);
         const loadId = ++this.loadId;
 
-        if (!this.changeBuffer(sourceBuffer.slice(0, partLength), loadId)) {
+        if (!await this.changeBuffer(sourceBuffer.slice(0, partLength), loadId, true)) {
             return this;
         }
 
@@ -128,14 +159,22 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
 
         await this.changeBuffer(sourceBuffer, loadId);
 
+        this.loaded = true;
+        this.emit(this.events.LOAD, this);
+
         return this;
     }
 
     protected async setSourceStream(sourceStream: ReadableStream<Uint8Array | ArrayBuffer>) {
+        this.loaded = false;
+        this.emit(this.events.LOAD_START, this);
+        this.emit(this.events.CHANGE, this);
+
         let buffer = new ArrayBuffer(0);
         const loadId = ++this.loadId;
 
         const reader = sourceStream.getReader();
+        let isFirstPart = true;
         
         while (true) {
             const { done, value } = await reader.read();
@@ -150,10 +189,21 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
             if (partBuffer?.byteLength) {
                 buffer = Utils.concatBuffers(buffer, partBuffer);
 
-                if (!await this.changeBuffer(buffer, loadId)) {
-                    await reader.cancel();
-                    await sourceStream.cancel();
-                    break;
+                if ((buffer.byteLength >= this.minBufferLength) || done) {
+                    try {
+                        if (this.destructed || !await this.changeBuffer(buffer.slice(0), loadId, isFirstPart)) {
+                            await reader.cancel();
+                            // await sourceStream.cancel();
+                            break;
+                        }
+
+                        isFirstPart = false;
+                    } catch (error) {
+                        console.warn({
+                            message: 'Continue decoding',
+                            error,
+                        });
+                    }
                 }
             }
             
@@ -164,11 +214,18 @@ export class BufferSource extends SubSource<BufferSource, BufferSourceTypes> {
             await Utils.sleep(100);
         }
 
+        this.loaded = true;
+        this.emit(this.events.LOAD, this);
+
         return this;
     }
 
     async setSource(rawSource: BufferSourceTypes) {
+        const paused = this._paused;
         this.pause();
+        delete this.audioBuffer;
+        this.currentTime = 0;
+        this._paused = paused;
 
         if (rawSource instanceof ArrayBuffer) {
             return this.setSourceBuffer(rawSource);

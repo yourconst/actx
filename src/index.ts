@@ -1,13 +1,14 @@
 import { LinkedList } from './LinkedList';
 import { Source, SourceTypes } from './Source';
 
-export { CustomAudioNode } from './CustomAudioNode';
+import { CustomAudioNode, PossibleAudioNode } from './CustomAudioNode';
+import { CustomAnalyserNode } from './customNodes';
 
 export class ACTX {
     readonly ctx = new AudioContext();
     readonly gainInput = this.ctx.createGain();
     // gainOutput = this.ctx.createGain();
-    readonly nodesList = new LinkedList<AudioNode>();
+    readonly nodesList = new LinkedList<PossibleAudioNode>();
     // analyzers = new Set<AnalyserNode>();
     readonly sources = new Set<Source>();
 
@@ -34,68 +35,133 @@ export class ACTX {
         return this;
     }
 
+
+    createCustomAnalyserNode() {
+        return new CustomAnalyserNode(this.ctx);
+    }
+
+
     getSources() {
         return Array.from(this.sources);
     }
 
-    async addSource(rawSource: SourceTypes) {
-        const source = await new Source(this.gainInput).setSource(rawSource);
+    addEmptySource() {
+        const source = new Source(this.gainInput);
+
+        source.addListener(source.events.DESCTRUCT, (source) => {
+            this.sources.delete(source);
+        });
         
         this.sources.add(source);
 
         return source;
     }
 
+    async addSource(rawSource: SourceTypes) {
+        const source = this.addEmptySource();
+        
+        await source.setSource(rawSource);
+
+        return source;
+    }
+
     deleteSource(source: Source) {
-        this.sources.delete(source);
+        source.destructor();
     }
 
     constructor() {
         this.gainInput.connect(this.ctx.destination);
         // this.gainOutput.connect(this.ctx.destination);
 
-        this.nodesList.onChange = (node) => {
-            if (node.type === 'insert') {
-                if (node.prev) {
-                    node.prev.disconnect(node.next || this.ctx.destination);
-                    node.prev.connect(node.value);
+        this.nodesList.onChange = (changes) => {
+            if (changes.type === 'insert') {
+                if (changes.prev) {
+                    CustomAudioNode.disconnect(changes.prev, changes.next || this.ctx.destination);
+                    CustomAudioNode.connect(changes.prev, changes.value);
                 } else {
-                    if (node.next) {
-                        this.gainInput.disconnect(node.next);
-                    }
-                    this.gainInput.connect(node.value);
+                    CustomAudioNode.disconnect(this.gainInput, changes.next || this.ctx.destination);
+                    CustomAudioNode.connect(this.gainInput, changes.value);
                 }
 
-                if (node.next) {
-                    if (node.prev) {
-                        node.prev.disconnect(node.next);
-                        node.prev.connect(node.value);
+                if (changes.next) {
+                    if (changes.prev) {
+                        CustomAudioNode.disconnect(changes.prev, changes.next);
+                        CustomAudioNode.connect(changes.prev, changes.value);
                     } else {
-                        this.gainInput.disconnect(node.next);
-                        this.gainInput.connect(node.value);
+                        CustomAudioNode.disconnect(this.gainInput, changes.next);
+                        CustomAudioNode.connect(this.gainInput, changes.value);
                     }
                 } else {
-                    if (node.prev) {
-                        node.prev.disconnect(this.ctx.destination);
+                    if (changes.prev) {
+                        CustomAudioNode.disconnect(changes.prev, this.ctx.destination);
                     }
-                    node.value.connect(this.ctx.destination);
+                    CustomAudioNode.connect(changes.value, this.ctx.destination);
                 }
             } else {
-                if (node.prev) {
-                    node.prev.disconnect(node.value);
-                    node.prev.connect(node.next || this.ctx.destination);
+                if (changes.prev) {
+                    CustomAudioNode.disconnect(changes.prev, changes.value);
+                    CustomAudioNode.connect(changes.prev, changes.next || this.ctx.destination);
+                } else {
+                    CustomAudioNode.disconnect(this.gainInput, changes.value);
+                    CustomAudioNode.connect(this.gainInput, changes.next || this.ctx.destination);
                 }
 
-                if (node.next) {
-                    if (node.prev) {
-                        node.prev.disconnect(node.value);
-                        node.prev.connect(node.next);
+                if (changes.next) {
+                    if (changes.prev) {
+                        CustomAudioNode.disconnect(changes.prev, changes.value);
+                        CustomAudioNode.connect(changes.prev, changes.next);
                     } else {
-                        this.gainInput.disconnect(node.value);
-                        this.gainInput.connect(node.next);
+                        CustomAudioNode.disconnect(this.gainInput, changes.value);
+                        // this.gainInput.connect(changes.next.in);
                     }
                 }
             }
         };
     }
 };
+
+
+/*
+if (changes.type === 'insert') {
+    if (changes.prev) {
+        changes.prev.out.disconnect(changes.next?.in || this.ctx.destination);
+        changes.prev.out.connect(changes.value.in);
+    } else {
+        this.gainInput.disconnect(changes.next?.in || this.ctx.destination);
+        this.gainInput.connect(changes.value.in);
+    }
+
+    if (changes.next) {
+        if (changes.prev) {
+            changes.prev.out.disconnect(changes.next.in);
+            changes.prev.out.connect(changes.value.in);
+        } else {
+            this.gainInput.disconnect(changes.next.in);
+            this.gainInput.connect(changes.value.in);
+        }
+    } else {
+        if (changes.prev) {
+            changes.prev.out.disconnect(this.ctx.destination);
+        }
+        changes.value.out.connect(this.ctx.destination);
+    }
+} else {
+    if (changes.prev) {
+        changes.prev.out.disconnect(changes.value.in);
+        changes.prev.out.connect(changes.next?.in || this.ctx.destination);
+    } else {
+        this.gainInput.disconnect(changes.value.in);
+        this.gainInput.connect(changes.next?.out || this.ctx.destination);
+    }
+
+    if (changes.next) {
+        if (changes.prev) {
+            changes.prev.out.disconnect(changes.value.in);
+            changes.prev.out.connect(changes.next.in);
+        } else {
+            this.gainInput.disconnect(changes.value.in);
+            // this.gainInput.connect(changes.next.in);
+        }
+    }
+}
+*/

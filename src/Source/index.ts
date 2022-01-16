@@ -11,7 +11,7 @@ const possibleSources = [BufferSource, MediaSource];
 export class Source extends SubSource<Source, SourceTypes> {
     ctx: AudioContext;
     targetNode: AudioDestinationNode;
-    protected _source: SubSource<typeof possibleSources[number], SourceTypes> = null;
+    protected _source: SubSource<SubSource<any, any>, SourceTypes> = null;
 
     get volume() { return this.source?.volume ?? null; }
     set volume(value) { if(this.source) this.source.volume = value; }
@@ -41,6 +41,14 @@ export class Source extends SubSource<Source, SourceTypes> {
         this.source?.destructor();
 
         this._source = value;
+
+        this._source.addListener(this.events.CHANGE, () => this.emit(this.events.CHANGE, this));
+        this._source.addListener(this.events.DURATION_CHANGE, () => this.emit(this.events.DURATION_CHANGE, this));
+        this._source.addListener(this.events.END, () => this.emit(this.events.END, this));
+        this._source.addListener(this.events.LOAD, () => this.emit(this.events.LOAD, this));
+        this._source.addListener(this.events.LOAD_START, () => this.emit(this.events.LOAD_START, this));
+        this._source.addListener(this.events.PAUSE, () => this.emit(this.events.PAUSE, this));
+        this._source.addListener(this.events.PLAY, () => this.emit(this.events.PLAY, this));
     }
 
     changeTargetNode(targetNode: AudioDestinationNode) {
@@ -55,7 +63,12 @@ export class Source extends SubSource<Source, SourceTypes> {
                 if (this.source instanceof SomeSource) {
                     await this.source.setSource(<any> rawSource);
                 } else {
-                    this.source = await new SomeSource(this.targetNode).setSource(<any> rawSource);
+                    const played = !this.paused;
+                    this.source = new SomeSource(this.targetNode);
+                    if (played) {
+                        this.source.play();
+                    }
+                    await this.source.setSource(<any> rawSource);
                 }
 
                 return this;
